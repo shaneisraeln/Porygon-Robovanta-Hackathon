@@ -1,0 +1,491 @@
+# Experience Layer (Core Product Interface)
+
+Unlike traditional AI products that rely on dashboards or chat interfaces, CBO introduces a Company Twin Interface.
+
+The startup is represented as a living digital entity that continuously evolves as new information enters the system.
+
+Instead of navigating documents, dashboards, and disconnected tools, founders interact directly with a digital representation of their company.
+
+---
+
+## Core Philosophy
+
+Current Tools
+
+User → Tool → Information
+
+CBO
+
+User → Company Twin → Intelligence
+
+The founder does not talk to documents.
+
+The founder talks to the company itself.
+
+---
+
+# Company Twin Interface
+
+At the center of the interface exists a dynamic Company Core.
+
+Example:
+
+ZYGREEN
+
+Health Score: 82%
+
+Fundraising Readiness: 74%
+
+Execution Health: 88%
+
+Market Position: 69%
+
+The Company Core continuously updates based on company activity.
+
+---
+
+# Dynamic Intelligence Nodes
+
+Surrounding the Company Core are intelligent business nodes.
+
+Nodes include:
+
+• Investors
+• Customers
+• Product
+• Team
+• Finance
+• Operations
+• Market
+
+Each node expands into deeper layers of company intelligence.
+
+Example:
+
+Investor Node
+
+→ Investor Relationships
+→ Meeting History
+→ Follow-Ups
+→ Interest Signals
+→ Risk Factors
+
+Product Node
+
+→ Roadmap
+→ User Feedback
+→ Decisions
+→ Releases
+
+Finance Node
+
+→ Revenue
+→ Burn Rate
+→ Runway
+→ Funding Targets
+
+---
+
+# Executive Council Mode
+
+For strategic decisions, CBO transforms into a multi-agent executive council.
+
+Participants:
+
+• Fundraising Agent
+• Strategy Agent
+• Market Agent
+• Execution Agent
+• Investor Relations Agent
+
+The founder asks:
+
+"Should we raise capital now?"
+
+Each agent contributes analysis.
+
+CBO synthesizes recommendations and presents a final strategic conclusion.
+
+This simulates a boardroom discussion rather than a chatbot interaction.
+
+---
+
+# Fundraising War Room
+
+Dedicated workspace for fundraising activities.
+
+Displays:
+
+• Fundraising Readiness Score
+• Investor Pipeline
+• Upcoming Meetings
+• Risk Areas
+• Competitive Position
+• Suggested Talking Points
+
+The system automatically prepares founders before meetings and generates actions afterward.
+
+---
+
+# Long-Term Experience Vision
+
+CBO becomes the Digital Twin of the company.
+
+A persistent business identity that:
+
+• Understands company history
+• Tracks relationships
+• Stores strategic decisions
+• Learns continuously
+• Provides executive-level intelligence
+
+The interface evolves alongside the company and becomes the operating layer through which founders understand and manage their organization.
+
+---
+
+# Technical Requirements Document (TRD)
+
+## System Overview
+
+CBO is a multi-layered AI-native platform composed of:
+
+• Frontend Experience Layer (Company Twin Interface)
+• Backend Application Layer
+• AI Orchestration Layer
+• Memory & Knowledge Layer
+• Data Integration Layer
+
+The system is designed for real-time intelligence, persistent memory, and multi-agent reasoning.
+
+---
+
+## Frontend Architecture
+
+Framework:
+
+• React / Next.js (App Router)
+• TailwindCSS / Component Library
+• WebSocket support for real-time updates
+
+Core Components:
+
+• Company Core Visualization Engine
+• Node Expansion Panels
+• Executive Council Interface
+• War Room Dashboard
+• Timeline & Activity Feed
+
+State Management:
+
+• Zustand or Redux
+• Real-time sync via WebSockets
+
+---
+
+## Backend Architecture
+
+Framework:
+
+• Node.js (NestJS or Express)
+• Python microservices for AI processing
+
+Core Services:
+
+• User & Auth Service
+• Company Data Service
+• Event Processing Service
+• AI Orchestration Service
+• Notification Service
+
+Infrastructure:
+
+• Dockerized services
+• Kubernetes (optional for scaling)
+• Cloud: AWS / GCP
+
+---
+
+## AI Orchestration Layer
+
+Central Controller:
+
+• CBO Core Orchestrator
+
+Responsibilities:
+
+• Intent detection
+• Agent selection
+• Task delegation
+• Response synthesis
+• Confidence scoring
+
+Agents:
+
+• Fundraising Agent
+• Strategy Agent
+• Market Agent
+• Execution Agent
+• Investor Relations Agent
+• Memory Agent
+
+Workflow:
+
+User Input → Intent Parsing → Agent Routing → Parallel Agent Execution → Aggregation → Final Output
+
+---
+
+## Memory & Knowledge Layer
+
+Components:
+
+• Vector Database (Pinecone / Weaviate)
+• Graph Database (Neo4j)
+• Relational Database (PostgreSQL)
+• Cache Layer (Redis)
+
+Capabilities:
+
+• Semantic search
+• Relationship mapping
+• Historical tracking
+• Context retrieval
+
+---
+
+## Data Integration Layer
+
+Integrations:
+
+• CRM systems
+• Email (Gmail / Outlook)
+• Calendar
+• Financial tools
+• Product analytics
+
+Data Pipeline:
+
+• Ingestion → Normalization → Storage → Indexing → Retrieval
+
+---
+
+## Security & Permissions
+
+• OAuth / SSO authentication
+• Role-based access control
+• Data encryption (at rest & in transit)
+• Audit logs for all actions
+
+---
+
+# AI IDE Prompt Specification
+
+## System Prompt (CBO Core)
+
+Role:
+
+You are CBO, the Chief Business Officer AI for a startup.
+
+Mission:
+
+Provide strategic, operational, and fundraising intelligence by orchestrating specialized agents and synthesizing their outputs into clear, actionable recommendations.
+
+Responsibilities:
+
+• Understand founder intent
+• Retrieve relevant company context
+• Delegate tasks to appropriate agents
+• Combine insights into a single coherent response
+• Maintain executive-level clarity
+
+Rules:
+
+• Always ground responses in company data
+• Avoid speculation without evidence
+• Highlight risks and uncertainties
+• Provide actionable next steps
+• Maintain concise, structured output
+
+Output Format:
+
+• Summary
+• Key Insights
+• Risks
+• Recommendations
+• Next Actions
+
+---
+
+## Agent Prompt Template
+
+Role:
+
+You are a specialized AI agent within CBO.
+
+Mission:
+
+Provide domain-specific analysis based on available company data.
+
+Responsibilities:
+
+• Analyze relevant inputs
+• Identify patterns and risks
+• Generate insights within your domain
+• Return structured output
+
+Constraints:
+
+• Do not hallucinate missing data
+• Clearly state assumptions
+• Stay within your domain expertise
+
+Output Format:
+
+• Analysis
+• Key Findings
+• Risks
+• Recommendations
+
+---
+
+## Example: Fundraising Agent Prompt
+
+Role:
+
+You are the Fundraising Agent.
+
+Mission:
+
+Evaluate fundraising readiness and provide strategic guidance.
+
+Inputs:
+
+• Company metrics
+• Investor pipeline
+• Market conditions
+• Historical fundraising data
+
+Tasks:
+
+• Assess readiness score
+• Identify gaps
+• Recommend timing
+• Suggest investor targeting strategy
+
+Output:
+
+• Readiness Assessment
+• Key Gaps
+• Risks
+• Recommended Actions
+
+---
+
+## Example: Strategy Agent Prompt
+
+Role:
+
+You are the Strategy Agent.
+
+Mission:
+
+Provide high-level strategic direction.
+
+Tasks:
+
+• Evaluate company positioning
+• Analyze competitive landscape
+• Recommend strategic moves
+
+Output:
+
+• Strategic Assessment
+• Opportunities
+• Risks
+• Recommendations
+
+---
+
+## AI IDE Usage Prompt
+
+Use this prompt inside an AI coding IDE (e.g., Cursor, Claude Code):
+
+"You are building CBO, an AI-native startup operating system with a Company Twin Interface.
+
+Follow these rules:
+
+1. Implement modular architecture with clear separation between frontend, backend, and AI layers.
+2. Build the Company Core visualization as the central UI component.
+3. Implement dynamic nodes that expand into detailed panels.
+4. Create an AI orchestration layer that routes tasks to specialized agents.
+5. Integrate vector search and graph database for memory.
+6. Ensure real-time updates using WebSockets.
+7. Maintain clean, scalable, production-ready code.
+8. Prioritize extensibility for future agents and integrations.
+
+Always generate code that is structured, documented, and ready for deployment."
+
+---
+
+
+Low-Fidelity Wireframe
+Home Screen
+┌─────────────────────────────────────────────┐
+│                    CBO                      │
+├─────────────────────────────────────────────┤
+│                                             │
+│          Market                             │
+│             ○                               │
+│                                             │
+│   Investors ○         ○ Team                │
+│                                             │
+│                                             │
+│            ┌──────────┐                     │
+│            │ ZYGREEN  │                     │
+│            │   82%    │                     │
+│            └──────────┘                     │
+│                                             │
+│   Finance ○          ○ Product              │
+│                                             │
+│                                             │
+│          Customers                          │
+│             ○                               │
+│                                             │
+└─────────────────────────────────────────────┘
+Investor Node Expanded
+┌─────────────────────────────────────────────┐
+│ INVESTORS                                   │
+├─────────────────────────────────────────────┤
+│                                             │
+│ Peak XV                                     │
+│ Meeting Scheduled                           │
+│ Confidence: 82%                             │
+│                                             │
+│ Accel                                       │
+│ Follow Up Pending                           │
+│ Confidence: 67%                             │
+│                                             │
+│ Sequoia                                     │
+│ Researching                                 │
+│                                             │
+└─────────────────────────────────────────────┘
+Executive Council Mode
+┌─────────────────────────────────────────────┐
+│ Question: Should we raise capital now?      │
+├─────────────────────────────────────────────┤
+│                                             │
+│ Fundraising Agent                           │
+│ Raise in 3 months                           │
+│                                             │
+│ Market Agent                                │
+│ Market conditions moderate                  │
+│                                             │
+│ Strategy Agent                              │
+│ Need stronger growth metrics                │
+│                                             │
+│ Execution Agent                             │
+│ Runway sufficient for 10 months             │
+│                                             │
+├─────────────────────────────────────────────┤
+│ CBO Recommendation                          │
+│ Delay raise by 90 days                      │
+└─────────────────────────────────────────────┘
