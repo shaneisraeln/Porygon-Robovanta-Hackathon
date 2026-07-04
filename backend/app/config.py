@@ -43,10 +43,36 @@ class Settings:
     notion_token: str | None = os.getenv("NOTION_TOKEN")
     slack_token: str | None = os.getenv("SLACK_TOKEN")
     stripe_api_key: str | None = os.getenv("STRIPE_API_KEY")
+    instagram_token: str | None = os.getenv("INSTAGRAM_TOKEN")
+    facebook_token: str | None = os.getenv("FACEBOOK_TOKEN")
+
+    # Web research / search providers (all optional; keyless DuckDuckGo fallback).
+    search_provider: str = os.getenv("SEARCH_PROVIDER", "auto").lower()  # auto | tavily | serper | brave | duckduckgo
+    tavily_api_key: str | None = os.getenv("TAVILY_API_KEY")
+    serper_api_key: str | None = os.getenv("SERPER_API_KEY")
+    brave_api_key: str | None = os.getenv("BRAVE_API_KEY")
+
+    # OAuth apps for one-click "Connect" (per provider client id/secret + redirect).
+    # When absent, connectors fall back to token paste. Register apps in each
+    # provider's developer console to enable sign-in.
+    oauth_redirect_base: str = os.getenv("OAUTH_REDIRECT_BASE", "http://127.0.0.1:8000")
+    frontend_base: str = os.getenv("FRONTEND_BASE", "http://localhost:3000")
 
     cors_origins: list[str] = [
         o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()
     ]
+
+    def oauth_client(self, provider: str) -> dict | None:
+        """Return {client_id, client_secret} for a provider if configured."""
+        cid = os.getenv(f"{provider.upper()}_CLIENT_ID")
+        secret = os.getenv(f"{provider.upper()}_CLIENT_SECRET")
+        if cid and secret:
+            return {"client_id": cid, "client_secret": secret}
+        return None
+
+    @property
+    def search_active(self) -> bool:
+        return True  # always available via keyless DuckDuckGo fallback
 
     @property
     def llm_active(self) -> bool:

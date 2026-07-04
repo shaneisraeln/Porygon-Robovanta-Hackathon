@@ -9,6 +9,7 @@ import { api, ConnectorInfo, Counts, TimelineEvent } from "@/lib/api";
 const CATEGORY_LABEL: Record<string, string> = {
   communication: "Communication", documents: "Documents", product: "Product & Engineering",
   crm: "CRM", finance: "Finance", analytics: "Analytics", investors: "Investors",
+  marketing: "Marketing & Social",
 };
 const PIPELINE = ["Connect", "Sync", "Extract", "Entities", "Relationships", "Graph", "Vectors", "Timeline", "Agents"];
 
@@ -29,7 +30,36 @@ function Sources() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // Surface the result of an OAuth round-trip (?connect=success&source=...).
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const c = p.get("connect");
+    if (!c) return;
+    if (c === "success") setMsg(`Connected ${p.get("source") || "source"} — synced into memory.`);
+    else if (c === "failed") setMsg("Sign-in completed but the token exchange failed. Try again or paste a token.");
+    else if (c === "error") setMsg("Sign-in was cancelled or returned an error.");
+    window.history.replaceState({}, "", "/sources");
+    refresh();
+  }, [refresh]);
+
   async function doConnect(id: string, token?: string) {
+    const info = connectors.find((c) => c.id === id);
+    // One-click OAuth when the provider is configured; else fall back to token.
+    if (info?.oauth && !token) {
+      setBusy(id); setMsg(null);
+      try {
+        const start = await api.oauthStart(companyId, id);
+        if (start.configured && start.authorize_url) {
+          window.location.href = start.authorize_url;
+          return;
+        }
+        setTokenFor(id);
+        setMsg(start.message || "One-click sign-in isn't configured — paste a token instead.");
+      } catch { setMsg("Couldn't start sign-in."); }
+      finally { setBusy(null); }
+      return;
+    }
+
     setBusy(id); setMsg(null);
     try {
       const res = await api.connect(companyId, id, token);
@@ -95,7 +125,9 @@ function Sources() {
                         <div className="flex items-center gap-2">
                           <p className="text-[15px] font-medium text-ink">{c.name}</p>
                           {c.connected && <span className="h-1.5 w-1.5 rounded-full bg-good" />}
-                          {c.requires_credential && <span className="rounded-full bg-canvas px-1.5 py-0.5 text-[10px] text-faint">token</span>}
+                          {c.requires_credential && (
+                            <span className="rounded-full bg-canvas px-1.5 py-0.5 text-[10px] text-faint">{c.oauth ? "sign-in" : "token"}</span>
+                          )}
                         </div>
                         <p className="text-[13px] text-muted">{c.blurb}</p>
                         {c.connected && c.record_count ? <p className="text-[11px] text-faint">{c.record_count} records in memory</p> : null}
@@ -106,7 +138,7 @@ function Sources() {
                           <button onClick={() => doDisconnect(c.id)} className="rounded-lg px-2 py-1.5 text-[13px] text-faint hover:text-danger">Disconnect</button>
                         </div>
                       ) : (
-                        <button onClick={() => doConnect(c.id)} disabled={busy === c.id} className="rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-50">{busy === c.id ? "…" : "Connect"}</button>
+                        <button onClick={() => doConnect(c.id)} disabled={busy === c.id} className="rounded-lg bg-ink px-3.5 py-1.5 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-50">{busy === c.id ? "…" : c.oauth ? `Connect ${c.name}` : "Connect"}</button>
                       )}
                     </div>
                     {tokenFor === c.id && (

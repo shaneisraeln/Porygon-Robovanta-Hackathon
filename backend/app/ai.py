@@ -163,7 +163,20 @@ def _dedupe_sources(sources):
 
 # ---------------- Executive Council ----------------
 
-AGENTS = ["strategy", "finance", "fundraising", "market", "execution", "operations", "customer", "risk"]
+AGENTS = ["strategy", "finance", "fundraising", "market", "execution", "operations", "customer", "risk", "growth"]
+
+# Named persona frameworks each agent reasons through (v2 reasoning layer).
+AGENT_FRAMEWORKS = {
+    "strategy": "focus vs. optionality",
+    "finance": "burn multiple & runway discipline",
+    "fundraising": "vitamin-vs-painkiller & unfair advantage",
+    "market": "Porter's Five Forces",
+    "execution": "bottleneck theory of constraints",
+    "operations": "leverage the highest-volume workflow",
+    "customer": "cohort retention & NPS",
+    "risk": "pre-mortem",
+    "growth": "CAC:LTV-guarded acquisition loops",
+}
 
 
 def _intent(q: str) -> str:
@@ -182,7 +195,8 @@ def _intent(q: str) -> str:
 def _agent_verdict(agent: str, m: dict, intent: str, company_id: str) -> dict:
     fm = fmt_money
     def v(stance, evidence, pros, cons, rec, conf):
-        return {"agent": agent, "stance": stance, "evidence": evidence, "pros": pros, "cons": cons, "recommendation": rec, "confidence": conf}
+        return {"agent": agent, "stance": stance, "evidence": evidence, "pros": pros, "cons": cons,
+                "recommendation": rec, "confidence": conf, "framework": AGENT_FRAMEWORKS.get(agent, "")}
 
     if agent == "strategy":
         strong = m["execution_health"] >= 75
@@ -204,10 +218,21 @@ def _agent_verdict(agent: str, m: dict, intent: str, company_id: str) -> dict:
                  ["Windows can close" if ready else "Early opens get soft terms"],
                  "Open the round; sequence warmest first." if ready else "Harden growth 60-90 days, then open.", 82 if ready else 72)
     if agent == "market":
+        from . import competitors  # local import avoids a circular dependency
+        sig = competitors.market_signal(company_id)
+        evidence = [f"TAM {fm(m['tam'])}" if m["tam"] else "TAM unknown", f"Market {m['market_position']}%"]
+        pros = ["A defensible wedge attracts capital"]
+        cons = ["Crowding compresses differentiation"]
+        rec = "Lead with the most defensible segment."
+        if sig["count"]:
+            evidence.append(f"{sig['count']} competitor(s) tracked")
+            if sig["top_win"]:
+                pros.append(f"Where you win: {sig['top_win']}")
+            if sig["top_exposure"]:
+                cons.append(f"Where you're exposed: {sig['top_exposure']}")
+                rec = f"Close the gap on: {sig['top_exposure']} — then lead with your wedge."
         return v("Favorable positioning" if m["market_position"] >= 70 else "Contested positioning",
-                 [f"TAM {fm(m['tam'])}" if m["tam"] else "TAM unknown", f"Market {m['market_position']}%"],
-                 ["A defensible wedge attracts capital"], ["Crowding compresses differentiation"],
-                 "Lead with the most defensible segment.", 72)
+                 evidence, pros, cons, rec, 72)
     if agent == "execution":
         return v("Shipping well" if m["execution_health"] >= 75 else "Velocity at risk",
                  [f"Execution {m['execution_health']}%", f"Team {m['headcount']}" if m["headcount"] is not None else "Team unknown"],
@@ -221,6 +246,28 @@ def _agent_verdict(agent: str, m: dict, intent: str, company_id: str) -> dict:
                  [f"{m['customers']} customers" if m["customers"] is not None else "No count", f"Retention {m['retention']}%" if m["retention"] is not None else "Retention unknown"],
                  ["High retention compounds revenue"], ["Leaky retention undermines growth" if (m["retention"] or 100) < 90 else "Concentration risk if few logos"],
                  "Interview 5 churned and 5 happiest customers before any big bet.", 75 if m["retention"] is not None else 62)
+    if agent == "growth":
+        from . import competitors, growth as growth_mod, metrics as metrics_mod
+        lead = metrics_mod.calc_lead_score(company_id)
+        cac_ltv = metrics_mod.calc_cac_ltv(company_id, m)
+        recs = growth_mod.generate_recommendations(company_id)["recommendations"]
+        evidence = []
+        if lead["lead_score"] is not None:
+            evidence.append(f"Lead score {round(lead['lead_score'])}")
+        if cac_ltv["ratio"] is not None:
+            evidence.append(f"CAC:LTV {cac_ltv['ratio']}:1")
+        if m["growth"] is not None:
+            evidence.append(f"Growth {numfmt(m['growth'])}% MoM")
+        if not evidence:
+            evidence.append("Growth inputs not yet on file")
+        cons = ["Scaling spend before CAC:LTV is healthy burns capital"]
+        if cac_ltv["ratio"] is not None and cac_ltv["ratio"] < 3:
+            cons.append(f"CAC:LTV {cac_ltv['ratio']}:1 is below the 3:1 bar")
+        top = recs[0]["title"] if recs else "Instrument the funnel before spending"
+        return v("Efficient channels to press" if (cac_ltv["ratio"] or 0) >= 3 else "Fix unit economics before scaling",
+                 evidence, ["Compounding acquisition loops beat one-off pushes"], cons,
+                 f"Prioritize: {top}." + (" See the Growth Agent for the ranked plan." if recs else ""),
+                 74 if recs else 60)
     # risk
     flags = []
     if m["monthly_spend"] and not m["revenue"]:
@@ -273,9 +320,31 @@ def council_run(company_id: str, question: str) -> dict:
     dissent = [f"{v['agent']}: {v['stance']}" for v in verdicts if v["confidence"] < 70][:3]
     governance = _governance(m, headline)
 
+    # v3 feedback loop: fold measured outcomes of past recommendations back into
+    # the synthesis so the council reasons from what actually worked.
+    learnings = outcome_learnings(company_id)
+    if learnings:
+        rationale = rationale + " Prior outcomes considered: " + "; ".join(learnings[:2]) + "."
+
     return {"question": question, "plan": plan, "verdicts": verdicts, "debate": debate,
-            "synthesis": {"headline": headline, "rationale": rationale, "confidence": avg, "next_actions": actions, "dissent": dissent},
+            "synthesis": {"headline": headline, "rationale": rationale, "confidence": avg,
+                          "next_actions": actions, "dissent": dissent, "learnings": learnings},
             "governance": governance}
+
+
+def outcome_learnings(company_id: str, limit: int = 5) -> list[str]:
+    """Recent measured recommendation outcomes, as short reasoning inputs.
+
+    Same grounded-context pattern used everywhere else — no new AI subsystem,
+    just past outcomes surfaced as facts for Council/Growth reasoning."""
+    from . import outcomes  # local import avoids a circular dependency
+    out = []
+    for o in outcomes.get_recent_outcomes(company_id, limit=limit):
+        metric = o.get("outcome_metric") or "a metric"
+        base = o.get("baseline_value") or "—"
+        val = o.get("outcome_value") or "?"
+        out.append(f"{metric} moved {base} → {val}")
+    return out
 
 
 def _governance(m: dict, headline: str) -> dict:

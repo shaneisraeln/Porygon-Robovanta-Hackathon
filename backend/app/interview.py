@@ -62,11 +62,15 @@ QUESTIONS = [
     _q("users", "customers", "How many users or customers do you have?", {"live", "revenue"}, value_kind="count", fact=("customer", "count", "Active customers"), weight=8),
     _q("active", "customers", "How many are active (weekly/monthly)?", {"live"}, value_kind="count", fact=("customer", "active", "Active users"), weight=6),
     _q("retention", "customers", "What does retention look like? (rough % is fine)", {"live", "revenue"}, value_kind="percent", fact=("customer", "retention", "Retention"), weight=7),
+    _q("churn", "customers", "What's your monthly churn rate? (rough % is fine)", {"live", "revenue"}, value_kind="percent", fact=("metric", "churn_rate", "Churn rate"), weight=6),
     _q("growth_feel", "traction", "How does growth feel lately?", {"live"}, kind="choice",
        options=["Not charging yet", "Flat", "Growing steadily", "Growing fast", "Exploding"], value_kind="growth", fact=("money", "growth", "Growth rate"), weight=7),
     _q("revenue_live", "revenue", "Are you generating revenue yet? Roughly how much?", {"live"}, value_kind="money", fact=("money", "revenue", "Revenue"), weight=7),
     _q("business_model_live", "business_model", "What's your business model / how do you charge?", {"live", "revenue"}, fact=("money", "business_model", "Business model"), weight=6),
     _q("marketing", "gtm", "What are your main acquisition channels?", {"live", "revenue"}, fact=("strategy", "marketing", "Acquisition channels"), weight=5),
+    _q("leads_monthly", "gtm", "Roughly how many new leads do you generate per month?", {"live", "revenue"}, value_kind="count", fact=("metric", "leads_monthly", "Monthly leads"), weight=6),
+    _q("lead_conversion", "gtm", "What percent of leads convert to customers?", {"live", "revenue"}, value_kind="percent", fact=("metric", "lead_conversion_rate", "Lead conversion rate"), weight=6),
+    _q("lead_source_mix", "gtm", "What's your lead source mix? (e.g. organic / paid / referral / outbound)", {"live", "revenue"}, fact=("metric", "lead_source_mix", "Lead source mix"), weight=5),
 
     # --- REVENUE / GROWTH path ---
     _q("mrr", "revenue", "What's your MRR or ARR right now?", {"revenue"}, value_kind="money", fact=("money", "revenue", "Revenue"), weight=9),
@@ -108,7 +112,8 @@ DIMENSIONS = {
     "market": (["geography", "alternatives", "tam"], 1.0),
     "competition": (["competitors", "alternatives"], 1.0),
     "team": (["headcount"], 1.0),
-    "traction": (["growth", "retention"], 1.0),
+    "traction": (["growth", "retention", "churn_rate"], 1.0),
+    "lead_generation": (["leads_monthly", "lead_conversion_rate", "lead_source_mix"], 1.0),
     "funding_readiness": (["raise_target", "round", "pitch_deck", "valuation"], 1.0),
 }
 
@@ -120,7 +125,7 @@ def link_fact_entity(company_id: str, fact_type: str, label: str, value: str) ->
         return memory.upsert_entity(company_id, "customer", "Customers", "serves")
     if fact_type == "team":
         return memory.upsert_entity(company_id, "person", "Team", "employs")
-    if fact_type in ("money", "market"):
+    if fact_type in ("money", "market", "metric"):
         return memory.upsert_entity(company_id, "metric", label, "tracks")
     if fact_type == "goal":
         return memory.upsert_entity(company_id, "goal", value[:28], "pursues")

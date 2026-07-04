@@ -33,6 +33,7 @@ def record_to_knowledge(rec: dict) -> dict:
         "message": _from_message,
         "crm_contact": _from_crm,
         "analytics": _from_analytics,
+        "social_post": _from_social,
         "document": _from_document,
     }.get(kind, _from_generic)
     return fn(rec)
@@ -198,6 +199,28 @@ def _from_analytics(rec):
         timeline={"kind": "Analytics", "title": f"{metric}: {value}", "summary": f"Change: {rec.get('change','')}", "who": [],
                   "why": "Product/usage signal", "evidence": f"{metric} {value} {rec.get('change','')}", "confidence": 0.6, "what_changed": f"{metric} updated", "agents": ["market", "execution"]},
         chunk=f"Analytics — {metric}: {value} ({rec.get('change','')}).",
+    )
+
+
+def _from_social(rec):
+    platform = rec.get("platform", "Social")
+    caption = rec.get("text", "") or ""
+    likes = rec.get("likes")
+    comments = rec.get("comments")
+    ref = f"{platform} · post"
+    facts = []
+    if likes is not None:
+        facts.append(_fact("metric", "social_engagement", f"{platform} engagement",
+                           f"{likes} likes" + (f", {comments} comments" if comments is not None else ""),
+                           ref, float(likes), 0.6, caption[:80]))
+    return _k(
+        entities=[{"type": "channel", "name": platform, "relation": "markets on"}],
+        facts=facts,
+        edges=[{"from": platform, "to": "__company__", "relation": "audience channel", "evidence": caption[:80], "confidence": 0.6}],
+        timeline={"kind": "Social", "title": f"{platform}: {caption[:60] or 'post'}", "summary": caption[:160],
+                  "who": [platform], "why": "Marketing / audience signal", "evidence": caption[:120], "confidence": 0.55,
+                  "what_changed": f"{platform} activity logged", "agents": ["market", "growth"]},
+        chunk=f"{platform} post: {caption}" + (f" ({likes} likes)" if likes is not None else ""),
     )
 
 
@@ -515,6 +538,45 @@ class SlackConnector(Connector):
         return records
 
 
+class FacebookConnector(Connector):
+    id, name, category = "facebook", "Facebook", "marketing"
+    blurb = "Page posts & engagement → audience, campaigns, reach."
+
+    def sync(self):
+        if not self.token:
+            return []
+        records: list[dict] = []
+        with httpx.Client(timeout=20) as cli:
+            res = cli.get("https://graph.facebook.com/v19.0/me/feed",
+                          params={"access_token": self.token, "limit": 10,
+                                  "fields": "message,created_time,likes.summary(true),comments.summary(true)"})
+            for post in res.json().get("data", []) if res.status_code == 200 else []:
+                likes = ((post.get("likes") or {}).get("summary") or {}).get("total_count")
+                comments = ((post.get("comments") or {}).get("summary") or {}).get("total_count")
+                records.append({"kind": "social_post", "at": time.time(), "platform": "Facebook",
+                                "text": post.get("message", ""), "likes": likes, "comments": comments})
+        return records
+
+
+class InstagramConnector(Connector):
+    id, name, category = "instagram", "Instagram", "marketing"
+    blurb = "Media & engagement → audience, content performance."
+
+    def sync(self):
+        if not self.token:
+            return []
+        records: list[dict] = []
+        with httpx.Client(timeout=20) as cli:
+            res = cli.get("https://graph.instagram.com/me/media",
+                          params={"access_token": self.token, "limit": 10,
+                                  "fields": "caption,like_count,comments_count,timestamp"})
+            for m in res.json().get("data", []) if res.status_code == 200 else []:
+                records.append({"kind": "social_post", "at": time.time(), "platform": "Instagram",
+                                "text": m.get("caption", ""), "likes": m.get("like_count"),
+                                "comments": m.get("comments_count")})
+        return records
+
+
 def _notion_title(page: dict) -> str:
     props = page.get("properties", {})
     for v in props.values():
@@ -526,11 +588,83 @@ def _notion_title(page: dict) -> str:
 REGISTRY: dict[str, type[Connector]] = {
     c.id: c for c in [
         GmailConnector, CalendarConnector, DriveConnector, GitHubConnector,
-        NotionConnector, SlackConnector, StripeConnector, ManualUploadConnector,
+        NotionConnector, SlackConnector, StripeConnector,
+        InstagramConnector, FacebookConnector, ManualUploadConnector,
     ]
 }
 
 
+# ------------- OAuth (one-click "Connect") -------------
+# Real sign-in activates per provider once CLIENT_ID/CLIENT_SECRET are set in the
+# environment (register an OAuth app in each provider's developer console).
+# Without them, connectors fall back to token paste.
+
+CONNECTOR_OAUTH: dict[str, dict] = {
+    "github": {"provider": "github", "authorize": "https://github.com/login/oauth/authorize",
+               "token": "https://github.com/login/oauth/access_token", "scope": "repo read:user"},
+    "gmail": {"provider": "google", "authorize": "https://accounts.google.com/o/oauth2/v2/auth",
+              "token": "https://oauth2.googleapis.com/token",
+              "scope": "https://www.googleapis.com/auth/gmail.readonly", "extra": {"access_type": "offline"}},
+    "gcal": {"provider": "google", "authorize": "https://accounts.google.com/o/oauth2/v2/auth",
+             "token": "https://oauth2.googleapis.com/token",
+             "scope": "https://www.googleapis.com/auth/calendar.readonly"},
+    "gdrive": {"provider": "google", "authorize": "https://accounts.google.com/o/oauth2/v2/auth",
+               "token": "https://oauth2.googleapis.com/token",
+               "scope": "https://www.googleapis.com/auth/drive.readonly"},
+    "slack": {"provider": "slack", "authorize": "https://slack.com/oauth/v2/authorize",
+              "token": "https://slack.com/api/oauth.v2.access", "scope": "channels:history,channels:read"},
+    "notion": {"provider": "notion", "authorize": "https://api.notion.com/v1/oauth/authorize",
+               "token": "https://api.notion.com/v1/oauth/token", "scope": ""},
+    "facebook": {"provider": "facebook", "authorize": "https://www.facebook.com/v19.0/dialog/oauth",
+                 "token": "https://graph.facebook.com/v19.0/oauth/access_token",
+                 "scope": "public_profile,pages_read_engagement,pages_show_list"},
+    "instagram": {"provider": "instagram", "authorize": "https://api.instagram.com/oauth/authorize",
+                  "token": "https://api.instagram.com/oauth/access_token", "scope": "user_profile,user_media"},
+}
+
+
+def _redirect_uri() -> str:
+    return f"{settings.oauth_redirect_base}/oauth/callback"
+
+
+def oauth_supported(connector_id: str) -> bool:
+    cfg = CONNECTOR_OAUTH.get(connector_id)
+    return bool(cfg and settings.oauth_client(cfg["provider"]))
+
+
+def oauth_authorize_url(connector_id: str, state: str) -> str | None:
+    from urllib.parse import urlencode
+    cfg = CONNECTOR_OAUTH.get(connector_id)
+    if not cfg:
+        return None
+    client = settings.oauth_client(cfg["provider"])
+    if not client:
+        return None
+    params = {"client_id": client["client_id"], "redirect_uri": _redirect_uri(),
+              "response_type": "code", "scope": cfg["scope"], "state": state}
+    params.update(cfg.get("extra", {}))
+    return f"{cfg['authorize']}?{urlencode(params)}"
+
+
+def oauth_exchange(connector_id: str, code: str) -> str | None:
+    cfg = CONNECTOR_OAUTH.get(connector_id)
+    if not cfg:
+        return None
+    client = settings.oauth_client(cfg["provider"])
+    if not client:
+        return None
+    data = {"client_id": client["client_id"], "client_secret": client["client_secret"],
+            "code": code, "redirect_uri": _redirect_uri(), "grant_type": "authorization_code"}
+    try:
+        r = httpx.post(cfg["token"], data=data, headers={"Accept": "application/json"}, timeout=20)
+        payload = r.json()
+    except Exception:
+        return None
+    # Slack nests the bot token; most providers expose access_token at top level.
+    return payload.get("access_token") or (payload.get("authed_user") or {}).get("access_token")
+
+
 def connector_catalog() -> list[dict]:
-    return [{"id": c.id, "name": c.name, "category": c.category, "blurb": c.blurb, "requires_credential": c.requires_credential}
+    return [{"id": c.id, "name": c.name, "category": c.category, "blurb": c.blurb,
+             "requires_credential": c.requires_credential, "oauth": oauth_supported(c.id)}
             for c in REGISTRY.values()]

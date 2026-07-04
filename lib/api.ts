@@ -30,9 +30,9 @@ export interface Metrics { revenue: number | null; monthly_spend: number | null;
 export interface BriefItem { section: string; title: string; why: string; changed: string; matters: string; next: string; severity: "high" | "medium" | "low"; source?: { ref: string; excerpt: string } | null }
 export interface Brief { company: Company; metrics: Metrics; summary: string; items: BriefItem[] }
 export interface AskResult { answer: string; confidence: number; sources: { source: string; excerpt: string }[]; connected_memories: string[]; evidence_count: number }
-export interface ConnectorInfo { id: string; name: string; category: string; blurb: string; requires_credential: boolean; connected: boolean; last_sync: number | null; record_count: number; has_credential: boolean }
+export interface ConnectorInfo { id: string; name: string; category: string; blurb: string; requires_credential: boolean; oauth?: boolean; connected: boolean; last_sync: number | null; record_count: number; has_credential: boolean }
 export interface Investor { id: string; name: string; firm: string; partner: string; sector: string; stage: string; geography: string; state: string; warmth: number; probability: number; last_touch: string; concerns: string[]; history: { at: string; note: string; tone: string }[]; sentiment?: string }
-export interface Verdict { agent: string; stance: string; evidence: string[]; pros: string[]; cons: string[]; recommendation: string; confidence: number }
+export interface Verdict { agent: string; stance: string; evidence: string[]; pros: string[]; cons: string[]; recommendation: string; confidence: number; framework?: string }
 export interface CouncilResult { question: string; plan: { intent: string; selected_agents: string[]; rationale: string }; verdicts: Verdict[]; debate: { agent: string; point: string }[]; synthesis: { headline: string; rationale: string; confidence: number; next_actions: string[]; dissent: string[] }; governance: { approved: boolean; checks: { check: string; status: string; note: string }[] } }
 
 export const api = {
@@ -51,6 +51,7 @@ export const api = {
     req<{ status: string; message?: string; summary?: Record<string, unknown>; counts?: Counts }>(`/companies/${id}/connectors/${cid}/connect`, { method: "POST", body: JSON.stringify({ token: token || null }) }),
   sync: (id: string, cid: string) => req<{ status: string; summary?: Record<string, unknown>; counts?: Counts }>(`/companies/${id}/connectors/${cid}/sync`, { method: "POST" }),
   disconnect: (id: string, cid: string) => req<{ status: string }>(`/companies/${id}/connectors/${cid}/disconnect`, { method: "POST" }),
+  oauthStart: (id: string, cid: string) => req<{ configured: boolean; authorize_url?: string; message?: string }>(`/companies/${id}/connectors/${cid}/oauth/start`),
   ingestText: (id: string, name: string, text: string) => req<{ summary: Record<string, number>; counts: Counts }>(`/companies/${id}/ingest/text`, { method: "POST", body: JSON.stringify({ name, text }) }),
   ingestUpload: async (id: string, file: File) => {
     const fd = new FormData();
@@ -118,6 +119,61 @@ export const networkApi = {
   discover: (id: string) => req<Discover>(`/companies/${id}/network/discover`),
   research: (id: string, firmId: string) => req<Research>(`/companies/${id}/network/${firmId}`),
   approach: (id: string, firmId: string) => req<{ investor_id: string; fit: { fit_score: number }; drafted: boolean }>(`/companies/${id}/network/${firmId}/approach`, { method: "POST" }),
+};
+
+// ---- Growth Agent & Outcome Tracking (v3) ----
+export type RecStatus = "recommended" | "in_progress" | "completed" | "measured";
+export interface Outcome { recommendation_id: string; outcome_metric: string; outcome_value: string; baseline_value: string; date_range: string; result_note: string; logged_at?: number }
+export interface Recommendation { recommendation_id: string; category: string; title: string; detail: string; rationale: string; priority: number; confidence: number; evidence: string[]; playbook: string[]; expected_impact: string; effort: string; timeframe: string; status: RecStatus; outcome: Outcome | null; learning: string | null }
+export interface LeadScore { lead_score: number | null; inputs_used: string[]; detail: Record<string, unknown> }
+export interface GrowthResult { recommendations: Recommendation[]; lead_score: LeadScore; recent_outcomes: Outcome[]; note: string }
+
+export const growthApi = {
+  recommendations: (id: string) => req<GrowthResult>(`/companies/${id}/growth/recommendations`),
+  setStatus: (id: string, rid: string, status: RecStatus) =>
+    req<{ recommendation_id: string; status: RecStatus }>(`/companies/${id}/growth/recommendations/${rid}/status`, { method: "POST", body: JSON.stringify({ status }) }),
+  logOutcome: (id: string, rid: string, body: { outcome_metric: string; outcome_value: string; baseline_value?: string; date_range?: string; result_note?: string }) =>
+    req<Outcome>(`/companies/${id}/growth/recommendations/${rid}/outcome`, { method: "POST", body: JSON.stringify(body) }),
+  outcomes: (id: string) => req<{ outcomes: Outcome[] }>(`/companies/${id}/growth/outcomes`),
+  leadScore: (id: string) => req<LeadScore>(`/companies/${id}/leads/score`),
+};
+
+// ---- Business Intelligence Dashboard v2 ----
+export type TileStatus = "ok" | "warn" | "insufficient";
+export interface RecTile { recommendation_id: string; title: string; status: RecStatus; confidence: number; outcome_badge: string }
+export interface RiskAlert { title: string; detail: string; severity: "high" | "medium" | "low" }
+export interface DashboardTile {
+  key: string; label: string; kind: "score" | "money" | "ratio" | "list";
+  value: number | null; display?: string; status: TileStatus; detail: string;
+  items?: (RecTile | RiskAlert)[];
+}
+export interface Dashboard { tiles: DashboardTile[]; executive_summary: string; metrics: Metrics; generated_at: number }
+
+export const dashboardApi = {
+  get: (id: string) => req<Dashboard>(`/companies/${id}/dashboard`),
+};
+
+// ---- Competitor Analysis (v2) ----
+export interface CompetitorRecord { name: string; features: string; pricing: string; positioning: string; notes: string }
+export interface ComparisonRow { dimension: string; us: string; competitors: { name: string; value: string }[] }
+export interface Comparison {
+  us: { name: string; features: string; pricing: string; positioning: string };
+  competitors: CompetitorRecord[];
+  table: ComparisonRow[];
+  where_you_win: string[];
+  where_youre_exposed: string[];
+  insufficient: boolean;
+  note: string;
+  discovered?: number;
+  added?: string[];
+  provider?: string;
+}
+
+export const competitorApi = {
+  get: (id: string) => req<Comparison>(`/companies/${id}/competitors`),
+  add: (id: string, body: { name: string; features?: string; pricing?: string; positioning?: string; notes?: string }) =>
+    req<Comparison>(`/companies/${id}/competitors`, { method: "POST", body: JSON.stringify(body) }),
+  discover: (id: string) => req<Comparison>(`/companies/${id}/competitors/discover`, { method: "POST" }),
 };
 
 export function fmtMoney(n: number | null): string {

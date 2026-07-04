@@ -2,11 +2,15 @@
 client. Every endpoint reads/writes real Company Memory."""
 from __future__ import annotations
 
+import base64
+import json as _json
+
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
-from . import ai, connectors, fundraising, interview, investordb, memory
+from . import ai, competitors, connectors, dashboard, fundraising, growth, interview, investordb, memory, metrics, outcomes
 from .config import settings
 from .db import init_db
 from .extract import detect_firms, extract_onboarding
@@ -88,6 +92,26 @@ class TranscriptReq(BaseModel):
 
 class ImportFirmsReq(BaseModel):
     firms: list[dict]
+
+
+class StatusReq(BaseModel):
+    status: str
+
+
+class OutcomeReq(BaseModel):
+    outcome_metric: str
+    outcome_value: str
+    baseline_value: str = ""
+    date_range: str = ""
+    result_note: str = ""
+
+
+class CompetitorReq(BaseModel):
+    name: str
+    features: str = ""
+    pricing: str = ""
+    positioning: str = ""
+    notes: str = ""
 
 
 # ---------------- health ----------------
@@ -486,3 +510,118 @@ def network_approach(company_id: str, firm_id: str):
                         summary=f"Fit {fit['fit_score']}% · outreach drafted.", who=[firm["firm"]], why="CBO recommended approach",
                         evidence=r["suggested_strategy"], confidence=0.8, what_changed="Investor entered active pipeline", agents=["fundraising", "investor"])
     return {"investor_id": iid, "fit": fit, "drafted": True}
+
+
+# ---------------- Growth Agent & Outcome Tracking (v3) ----------------
+
+@app.get("/companies/{company_id}/growth/recommendations")
+def growth_recommendations(company_id: str):
+    require_company(company_id)
+    return growth.generate_recommendations(company_id)
+
+
+@app.post("/companies/{company_id}/growth/recommendations/{rid}/status")
+def growth_set_status(company_id: str, rid: str, req: StatusReq):
+    require_company(company_id)
+    try:
+        status = outcomes.set_status(company_id, rid, req.status)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"recommendation_id": rid, "status": status}
+
+
+@app.post("/companies/{company_id}/growth/recommendations/{rid}/outcome")
+def growth_log_outcome(company_id: str, rid: str, req: OutcomeReq):
+    require_company(company_id)
+    return outcomes.log_outcome(company_id, rid, req.outcome_metric, req.outcome_value,
+                                req.baseline_value, req.date_range, req.result_note)
+
+
+@app.get("/companies/{company_id}/growth/outcomes")
+def growth_outcomes(company_id: str):
+    require_company(company_id)
+    return {"outcomes": outcomes.get_recent_outcomes(company_id, limit=50)}
+
+
+@app.get("/companies/{company_id}/leads/score")
+def leads_score(company_id: str):
+    require_company(company_id)
+    return metrics.calc_lead_score(company_id)
+
+
+# ---------------- Business Intelligence Dashboard v2 ----------------
+
+@app.get("/companies/{company_id}/dashboard")
+def get_dashboard(company_id: str):
+    require_company(company_id)
+    return dashboard.build_dashboard(company_id)
+
+
+# ---------------- Competitor Analysis (v2) ----------------
+
+@app.get("/companies/{company_id}/competitors")
+def get_competitors(company_id: str):
+    require_company(company_id)
+    return competitors.comparison(company_id)
+
+
+@app.post("/companies/{company_id}/competitors")
+def add_competitor(company_id: str, req: CompetitorReq):
+    require_company(company_id)
+    if not req.name.strip():
+        raise HTTPException(400, "A competitor name is required")
+    competitors.add_competitor(company_id, req.name.strip(), req.features, req.pricing, req.positioning, req.notes)
+    return competitors.comparison(company_id)
+
+
+@app.post("/companies/{company_id}/competitors/discover")
+def discover_competitors(company_id: str):
+    require_company(company_id)
+    return competitors.discover_competitors(company_id)
+
+
+# ---------------- OAuth one-click connect ----------------
+
+def _oauth_state(company_id: str, connector_id: str) -> str:
+    raw = _json.dumps({"c": company_id, "k": connector_id}).encode()
+    return base64.urlsafe_b64encode(raw).decode()
+
+
+def _decode_state(state: str) -> dict:
+    try:
+        return _json.loads(base64.urlsafe_b64decode(state.encode()).decode())
+    except Exception:
+        return {}
+
+
+@app.get("/companies/{company_id}/connectors/{connector_id}/oauth/start")
+def oauth_start(company_id: str, connector_id: str):
+    require_company(company_id)
+    if connector_id not in connectors.REGISTRY:
+        raise HTTPException(404, "Unknown connector")
+    if not connectors.oauth_supported(connector_id):
+        return {"configured": False,
+                "message": f"One-click sign-in isn't configured for {connector_id}. Set its CLIENT_ID/CLIENT_SECRET in the backend .env, or paste a token."}
+    url = connectors.oauth_authorize_url(connector_id, _oauth_state(company_id, connector_id))
+    return {"configured": True, "authorize_url": url}
+
+
+@app.get("/oauth/callback")
+def oauth_callback(code: str = "", state: str = ""):
+    st = _decode_state(state)
+    company_id, connector_id = st.get("c"), st.get("k")
+    front = settings.frontend_base.rstrip("/")
+    if not (code and company_id and connector_id):
+        return RedirectResponse(f"{front}/sources?connect=error")
+    token = connectors.oauth_exchange(connector_id, code)
+    if not token:
+        return RedirectResponse(f"{front}/sources?connect=failed")
+    memory.save_credential(company_id, connector_id, token)
+    cls = connectors.REGISTRY.get(connector_id)
+    try:
+        summary = cls(company_id, token=token).run()
+        memory.set_connector_state(company_id, connector_id, connected=1, last_sync=memory.now(),
+                                   cursor=summary.get("cursor", ""), record_count=summary.get("records", 0), has_credential=1)
+    except Exception:
+        memory.set_connector_state(company_id, connector_id, connected=1, last_sync=memory.now(), has_credential=1)
+    return RedirectResponse(f"{front}/sources?connect=success&source={connector_id}")

@@ -6,9 +6,12 @@ import { useStore } from "@/lib/store";
 
 const links = [
   { href: "/", label: "Brief" },
+  { href: "/dashboard", label: "Dashboard" },
   { href: "/brain", label: "Brain" },
   { href: "/sources", label: "Sources" },
   { href: "/council", label: "Council" },
+  { href: "/growth", label: "Growth" },
+  { href: "/competitors", label: "Competitors" },
   { href: "/investors", label: "Investors" },
   { href: "/fundraising", label: "Fundraising" },
 ];

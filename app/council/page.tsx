@@ -9,6 +9,7 @@ const SAMPLES = ["Should we raise now?", "Should we hire a senior engineer?", "S
 const agentDot: Record<string, string> = {
   strategy: "#5b54e8", finance: "#1a8f5c", fundraising: "#d1453b", market: "#b7791f",
   execution: "#0e7490", operations: "#7c3aed", customer: "#be185d", risk: "#16161a",
+  growth: "#0891b2",
 };
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -124,6 +125,7 @@ function AgentCard({ v, index }: { v: Verdict; index: number }) {
         <span className="text-[11px] text-faint">{v.confidence}%</span>
       </div>
       <p className="mt-1.5 text-[14px] font-medium text-ink">{v.stance}</p>
+      {v.framework && <p className="mt-0.5 text-[11px] text-faint">Framework: {v.framework}</p>}
       <p className="mt-2 text-[13px] leading-relaxed text-muted"><span className="text-faint">Evidence: </span>{v.evidence.join(" · ")}</p>
       <div className="mt-2.5 grid grid-cols-2 gap-3 text-[12px]">
         <div><p className="text-good">Pros</p>{v.pros.map((p, i) => <p key={i} className="text-muted">+ {p}</p>)}</div>
