@@ -577,6 +577,57 @@ class InstagramConnector(Connector):
         return records
 
 
+class HubSpotConnector(Connector):
+    id, name, category = "hubspot", "HubSpot", "crm"
+    blurb = "Contacts & deals → pipeline, customers, revenue signals."
+
+    def sync(self):
+        if not self.token:
+            return []
+        records: list[dict] = []
+        h = {"Authorization": f"Bearer {self.token}"}
+        with httpx.Client(timeout=20) as cli:
+            r = cli.get("https://api.hubapi.com/crm/v3/objects/contacts", headers=h,
+                        params={"limit": 20, "properties": "firstname,lastname,email,company"})
+            for o in r.json().get("results", []) if r.status_code == 200 else []:
+                p = o.get("properties", {}) or {}
+                name = (f"{p.get('firstname','')} {p.get('lastname','')}".strip()
+                        or p.get("company") or p.get("email") or "Contact")
+                records.append({"kind": "crm_contact", "at": time.time(), "name": name,
+                                "company": p.get("company", ""), "stage": "contact", "value": 0})
+            rd = cli.get("https://api.hubapi.com/crm/v3/objects/deals", headers=h,
+                         params={"limit": 20, "properties": "dealname,amount,dealstage"})
+            for o in rd.json().get("results", []) if rd.status_code == 200 else []:
+                p = o.get("properties", {}) or {}
+                records.append({"kind": "crm_contact", "at": time.time(), "name": p.get("dealname", "Deal"),
+                                "company": p.get("dealname", ""), "stage": p.get("dealstage", ""),
+                                "value": float(p.get("amount") or 0)})
+        return records
+
+
+class ZohoConnector(Connector):
+    id, name, category = "zoho", "Zoho CRM", "crm"
+    blurb = "Leads & contacts → pipeline, customers."
+    api_domain = "https://www.zohoapis.com"  # US DC; .in/.eu differ
+
+    def sync(self):
+        if not self.token:
+            return []
+        records: list[dict] = []
+        h = {"Authorization": f"Zoho-oauthtoken {self.token}"}
+        with httpx.Client(timeout=20) as cli:
+            for module in ("Leads", "Contacts"):
+                r = cli.get(f"{self.api_domain}/crm/v2/{module}", headers=h, params={"per_page": 20})
+                if r.status_code != 200:
+                    continue
+                for o in r.json().get("data", []):
+                    name = o.get("Full_Name") or o.get("Last_Name") or o.get("Company") or "Lead"
+                    records.append({"kind": "crm_contact", "at": time.time(), "name": name,
+                                    "company": o.get("Company", ""), "stage": o.get("Lead_Status") or module,
+                                    "value": float(o.get("Annual_Revenue") or 0)})
+        return records
+
+
 def _notion_title(page: dict) -> str:
     props = page.get("properties", {})
     for v in props.values():
@@ -589,6 +640,7 @@ REGISTRY: dict[str, type[Connector]] = {
     c.id: c for c in [
         GmailConnector, CalendarConnector, DriveConnector, GitHubConnector,
         NotionConnector, SlackConnector, StripeConnector,
+        HubSpotConnector, ZohoConnector,
         InstagramConnector, FacebookConnector, ManualUploadConnector,
     ]
 }
@@ -615,6 +667,12 @@ CONNECTOR_OAUTH: dict[str, dict] = {
               "token": "https://slack.com/api/oauth.v2.access", "scope": "channels:history,channels:read"},
     "notion": {"provider": "notion", "authorize": "https://api.notion.com/v1/oauth/authorize",
                "token": "https://api.notion.com/v1/oauth/token", "scope": ""},
+    "hubspot": {"provider": "hubspot", "authorize": "https://app.hubspot.com/oauth/authorize",
+                "token": "https://api.hubapi.com/oauth/v1/token",
+                "scope": "crm.objects.contacts.read crm.objects.deals.read"},
+    "zoho": {"provider": "zoho", "authorize": "https://accounts.zoho.com/oauth/v2/auth",
+             "token": "https://accounts.zoho.com/oauth/v2/token", "scope": "ZohoCRM.modules.READ",
+             "extra": {"access_type": "offline", "prompt": "consent"}},
     "facebook": {"provider": "facebook", "authorize": "https://www.facebook.com/v19.0/dialog/oauth",
                  "token": "https://graph.facebook.com/v19.0/oauth/access_token",
                  "scope": "public_profile,pages_read_engagement,pages_show_list"},
@@ -623,13 +681,31 @@ CONNECTOR_OAUTH: dict[str, dict] = {
 }
 
 
+# Human-friendly provider info for the in-app setup panel.
+OAUTH_PROVIDER_INFO = {
+    "github": {"name": "GitHub", "enables": ["GitHub"]},
+    "google": {"name": "Google", "enables": ["Gmail", "Calendar", "Drive"]},
+    "notion": {"name": "Notion", "enables": ["Notion"]},
+    "slack": {"name": "Slack", "enables": ["Slack"]},
+    "facebook": {"name": "Facebook", "enables": ["Facebook"]},
+    "instagram": {"name": "Instagram", "enables": ["Instagram"]},
+    "hubspot": {"name": "HubSpot", "enables": ["HubSpot"]},
+    "zoho": {"name": "Zoho CRM", "enables": ["Zoho CRM"]},
+}
+
+
 def _redirect_uri() -> str:
     return f"{settings.oauth_redirect_base}/oauth/callback"
 
 
+def resolve_oauth_client(provider: str) -> dict | None:
+    """Credentials from the DB (set via UI) take priority over .env."""
+    return memory.get_oauth_app(provider) or settings.oauth_client(provider)
+
+
 def oauth_supported(connector_id: str) -> bool:
     cfg = CONNECTOR_OAUTH.get(connector_id)
-    return bool(cfg and settings.oauth_client(cfg["provider"]))
+    return bool(cfg and resolve_oauth_client(cfg["provider"]))
 
 
 def oauth_authorize_url(connector_id: str, state: str) -> str | None:
@@ -637,7 +713,7 @@ def oauth_authorize_url(connector_id: str, state: str) -> str | None:
     cfg = CONNECTOR_OAUTH.get(connector_id)
     if not cfg:
         return None
-    client = settings.oauth_client(cfg["provider"])
+    client = resolve_oauth_client(cfg["provider"])
     if not client:
         return None
     params = {"client_id": client["client_id"], "redirect_uri": _redirect_uri(),
@@ -650,7 +726,7 @@ def oauth_exchange(connector_id: str, code: str) -> str | None:
     cfg = CONNECTOR_OAUTH.get(connector_id)
     if not cfg:
         return None
-    client = settings.oauth_client(cfg["provider"])
+    client = resolve_oauth_client(cfg["provider"])
     if not client:
         return None
     data = {"client_id": client["client_id"], "client_secret": client["client_secret"],

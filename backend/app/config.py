@@ -32,11 +32,18 @@ class Settings:
     redis_url: str | None = os.getenv("REDIS_URL")
 
     # AI
+    # Default 'local' auto-detects a running Ollama; if none, uses the grounded
+    # heuristic reasoner. Set explicitly to openai/anthropic/ollama to force one.
     llm_provider: str = os.getenv("LLM_PROVIDER", "local").lower()
     openai_api_key: str | None = os.getenv("OPENAI_API_KEY")
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     anthropic_api_key: str | None = os.getenv("ANTHROPIC_API_KEY")
     anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-latest")
+
+    # Local LLM via Ollama (runs on the user's own machine — data stays private).
+    ollama_base_url: str = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    ollama_model: str = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+    ollama_fast_model: str = os.getenv("OLLAMA_FAST_MODEL", "qwen2.5:3b")
 
     # Connector default credentials (per-company tokens override these)
     github_token: str | None = os.getenv("GITHUB_TOKEN")
@@ -45,6 +52,11 @@ class Settings:
     stripe_api_key: str | None = os.getenv("STRIPE_API_KEY")
     instagram_token: str | None = os.getenv("INSTAGRAM_TOKEN")
     facebook_token: str | None = os.getenv("FACEBOOK_TOKEN")
+
+    # Twilio (WhatsApp executive report delivery).
+    twilio_account_sid: str | None = os.getenv("TWILIO_ACCOUNT_SID")
+    twilio_auth_token: str | None = os.getenv("TWILIO_AUTH_TOKEN")
+    twilio_whatsapp_from: str = os.getenv("TWILIO_WHATSAPP_FROM", "whatsapp:+14155238886")
 
     # Web research / search providers (all optional; keyless DuckDuckGo fallback).
     search_provider: str = os.getenv("SEARCH_PROVIDER", "auto").lower()  # auto | tavily | serper | brave | duckduckgo

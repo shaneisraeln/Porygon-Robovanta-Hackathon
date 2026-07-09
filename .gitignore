@@ -5,4 +5,20 @@
 *.tsbuildinfo
 next-env.d.ts
 .env*.local
+.env
+**/.env
 .DS_Store
+
+# Large media files
+*.mp4
+
+# Python files
+__pycache__/
+*.pyc
+
+# Database temp files
+*.db-shm
+*.db-wal
+
+# Log files
+*.log

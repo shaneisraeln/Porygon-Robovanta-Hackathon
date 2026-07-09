@@ -199,6 +199,37 @@ CREATE TABLE IF NOT EXISTS investor_db (
 );
 CREATE INDEX IF NOT EXISTS idx_investordb_firm ON investor_db(firm);
 
+CREATE TABLE IF NOT EXISTS deals (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    value REAL NOT NULL DEFAULT 0,
+    stage TEXT NOT NULL DEFAULT 'Lead',
+    status TEXT NOT NULL DEFAULT 'open',
+    created_at REAL NOT NULL,
+    stage_since REAL NOT NULL,
+    last_activity REAL NOT NULL,
+    closed_at REAL
+);
+
+CREATE TABLE IF NOT EXISTS deal_events (
+    id TEXT PRIMARY KEY,
+    company_id TEXT NOT NULL,
+    deal_id TEXT NOT NULL,
+    from_stage TEXT,
+    to_stage TEXT NOT NULL,
+    at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS oauth_apps (
+    provider TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    client_secret TEXT NOT NULL,
+    updated_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_deals_company ON deals(company_id);
+CREATE INDEX IF NOT EXISTS idx_deal_events_company ON deal_events(company_id);
+
 CREATE INDEX IF NOT EXISTS idx_facts_company ON facts(company_id);
 CREATE INDEX IF NOT EXISTS idx_entities_company ON entities(company_id);
 CREATE INDEX IF NOT EXISTS idx_rel_company ON relationships(company_id);

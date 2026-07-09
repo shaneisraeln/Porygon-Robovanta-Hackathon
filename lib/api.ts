@@ -78,8 +78,8 @@ export interface InterviewStep { question: InterviewQuestion | null; profile: Pr
 export interface PipelineStage { key: string; label: string; status: "done" | "active" | "todo" | "blocked"; progress: number; action: string; depends_on: string[] }
 export interface Pipeline { stages: PipelineStage[]; overall_pct: number; done: number; total: number }
 export interface Readiness { score: number; metrics: Metrics; missing_metrics: string[]; missing_docs: string[]; analysis: string }
-export interface DeckSlide { title: string; bullets: string[]; needs_input: boolean }
-export interface Deck { id: string; kind: string; version: number; title: string; content: { slides: DeckSlide[]; completeness: number } }
+export interface DeckSlide { title: string; bullets: string[]; needs_input: boolean; guidance?: string }
+export interface Deck { id: string; kind: string; version: number; title: string; content: { slides: DeckSlide[]; completeness: number; llm_refined?: boolean; next_steps?: string[] } }
 export interface RankedInvestor extends Investor { fit_score: number; fit_reasons: string[] }
 export interface DataRoom { items: { key: string; label: string; present: boolean }[]; ready_pct: number }
 export interface OutreachRow { investor_id: string; firm: string; name: string; state: string; probability: number; status: string; subject: string; body: string }
@@ -153,8 +153,24 @@ export const dashboardApi = {
   get: (id: string) => req<Dashboard>(`/companies/${id}/dashboard`),
 };
 
+// ---- Consolidated executive report → WhatsApp ----
+export interface ReportSend { sent: boolean; status?: string; sid?: string; error?: string; report: string }
+export const reportApi = {
+  preview: (id: string) => req<{ report: string }>(`/companies/${id}/report`),
+  sendWhatsapp: (id: string, to: string) => req<ReportSend>(`/companies/${id}/report/whatsapp`, { method: "POST", body: JSON.stringify({ to }) }),
+};
+
+// ---- Integration setup (OAuth apps, managed from the UI) ----
+export interface Integration { provider: string; name: string; enables: string[]; configured: boolean }
+export const integrationsApi = {
+  list: () => req<{ integrations: Integration[]; redirect_uri: string }>("/settings/integrations"),
+  save: (provider: string, client_id: string, client_secret: string) =>
+    req<{ provider: string; configured: boolean }>(`/settings/integrations/${provider}`, { method: "POST", body: JSON.stringify({ client_id, client_secret }) }),
+  remove: (provider: string) => req<{ provider: string; configured: boolean }>(`/settings/integrations/${provider}`, { method: "DELETE" }),
+};
+
 // ---- Competitor Analysis (v2) ----
-export interface CompetitorRecord { name: string; features: string; pricing: string; positioning: string; notes: string }
+export interface CompetitorRecord { name: string; features: string; pricing: string; positioning: string; notes: string; url?: string }
 export interface ComparisonRow { dimension: string; us: string; competitors: { name: string; value: string }[] }
 export interface Comparison {
   us: { name: string; features: string; pricing: string; positioning: string };
@@ -171,9 +187,79 @@ export interface Comparison {
 
 export const competitorApi = {
   get: (id: string) => req<Comparison>(`/companies/${id}/competitors`),
-  add: (id: string, body: { name: string; features?: string; pricing?: string; positioning?: string; notes?: string }) =>
+  add: (id: string, body: { name: string; features?: string; pricing?: string; positioning?: string; notes?: string; url?: string }) =>
     req<Comparison>(`/companies/${id}/competitors`, { method: "POST", body: JSON.stringify(body) }),
   discover: (id: string) => req<Comparison>(`/companies/${id}/competitors/discover`, { method: "POST" }),
+};
+
+// ---- Growth Engines (6-engine hub) ----
+export interface EngineMeta { generated_by?: string; version?: number; empty?: boolean }
+export type Conf = "high" | "medium" | "low";
+export interface StrategyResult extends EngineMeta {
+  positioning?: { statement: string; grounded_in: string[]; confidence: Conf };
+  pricing?: { recommendation: string; rationale: string; confidence: Conf };
+  gtm_sequence?: { step: string; why_this_first: string }[];
+  insufficient_data_flags?: string[];
+}
+export interface MarketingChannel { status: "ok" | "insufficient_data"; tactic?: string; rationale?: string; confidence?: Conf }
+export interface MarketingResult extends EngineMeta { channels?: Record<string, MarketingChannel> }
+export interface LeadGenResult extends EngineMeta {
+  channel_risk_flag?: string | null;
+  recommendations?: { channel: string; tactic: string; rationale: string; confidence: Conf }[];
+  withheld_channels?: { channel: string; reason: string }[];
+}
+export interface SalesResult extends EngineMeta {
+  urgent_actions?: { deal_id: string; deal_name: string; stage: string; days_in_stage: number; recommended_action: string; rationale: string }[];
+  on_track?: { deal_id: string; deal_name: string; stage: string }[];
+  pipeline_insight?: string;
+  insufficient_data_flags?: string[];
+}
+export interface AnalyticsResult extends EngineMeta {
+  kpis?: DashboardTile[];
+  numeric_forecast?: { projection: { month: number; revenue: number; net: number; cash: number | null }[]; runway_months: number | null; grounded: boolean };
+  competitive?: { competitors: string[]; where_you_win: string[]; where_youre_exposed: string[] };
+  measured_summary?: { metric: string; value: string; trend: string }[];
+  forecasts?: { metric: string; projected_value?: string; method?: string; confidence?: Conf; status?: string }[];
+  competitive_insight?: { insight: string; grounded_in: string }[];
+  executive_summary_ai?: string | null;
+  executive_summary?: string;
+}
+export interface SuccessOverview { customers: { id: string; name: string; notes: string[] }[]; tickets: { id: string; subject: string; body: string; status: string }[]; customer_health: number | null; churn_pct: number | null; open_tickets: number; faqs: { q: string; a: string }[] }
+export interface SuccessBrief extends EngineMeta {
+  health_read?: { summary: string; at_risk_signals: string[]; confidence: Conf };
+  ticket_triage?: { subject: string; priority: string; suggested_reply: string }[];
+  retention_actions?: string[];
+  insufficient_data_flags?: string[];
+}
+export interface ChatResult { answer: string; confidence: number; sources: { source: string; excerpt: string }[]; grounded: boolean }
+export interface TicketResult { subject: string; suggested_reply: string; confidence: number; sources: { source: string; excerpt: string }[] }
+
+export interface Deal { id: string; name: string; value: number; stage: string; status: string; days_in_stage: number }
+export interface DealsResponse { deals: Deal[]; metrics: { total: number; open: number; won: number; lost: number; win_rate: number | null; open_value: number; avg_stage_transition_days: Record<string, number>; data_points: number }; stages: string[] }
+
+export const enginesApi = {
+  strategyGet: (id: string) => req<StrategyResult>(`/companies/${id}/engines/strategy`),
+  strategyGen: (id: string) => req<StrategyResult>(`/companies/${id}/engines/strategy`, { method: "POST" }),
+  marketingGet: (id: string) => req<MarketingResult>(`/companies/${id}/engines/marketing`),
+  marketingGen: (id: string) => req<MarketingResult>(`/companies/${id}/engines/marketing`, { method: "POST" }),
+  leadgenGet: (id: string) => req<LeadGenResult>(`/companies/${id}/engines/leadgen`),
+  leadgenGen: (id: string) => req<LeadGenResult>(`/companies/${id}/engines/leadgen`, { method: "POST" }),
+  salesGet: (id: string) => req<SalesResult>(`/companies/${id}/engines/sales`),
+  salesGen: (id: string) => req<SalesResult>(`/companies/${id}/engines/sales`, { method: "POST" }),
+  analyticsGet: (id: string) => req<AnalyticsResult>(`/companies/${id}/engines/analytics`),
+  analyticsGen: (id: string) => req<AnalyticsResult>(`/companies/${id}/engines/analytics`, { method: "POST" }),
+  successGet: (id: string) => req<SuccessOverview>(`/companies/${id}/engines/success`),
+  successChat: (id: string, message: string) => req<ChatResult>(`/companies/${id}/engines/success/chat`, { method: "POST", body: JSON.stringify({ message }) }),
+  successTicket: (id: string, subject: string, body: string) => req<TicketResult>(`/companies/${id}/engines/success/ticket`, { method: "POST", body: JSON.stringify({ subject, body }) }),
+  successGenFaqs: (id: string) => req<{ faqs: { q: string; a: string }[] }>(`/companies/${id}/engines/success/faqs`, { method: "POST" }),
+  successBriefGet: (id: string) => req<SuccessBrief>(`/companies/${id}/engines/success/brief`),
+  successBriefGen: (id: string) => req<SuccessBrief>(`/companies/${id}/engines/success/brief`, { method: "POST" }),
+};
+
+export const dealsApi = {
+  list: (id: string) => req<DealsResponse>(`/companies/${id}/deals`),
+  create: (id: string, body: { name: string; value?: number; stage?: string }) => req<Deal>(`/companies/${id}/deals`, { method: "POST", body: JSON.stringify(body) }),
+  moveStage: (id: string, dealId: string, stage: string) => req<Deal>(`/companies/${id}/deals/${dealId}/stage`, { method: "POST", body: JSON.stringify({ stage }) }),
 };
 
 export function fmtMoney(n: number | null): string {

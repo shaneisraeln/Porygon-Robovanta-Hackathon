@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { RequireCompany } from "@/components/RequireCompany";
 import { useStore } from "@/lib/store";
-import { dashboardApi, Dashboard as DashboardData, DashboardTile, RecTile, RiskAlert } from "@/lib/api";
+import { dashboardApi, reportApi, Dashboard as DashboardData, DashboardTile, RecTile, RiskAlert } from "@/lib/api";
 
 const STATUS_RING: Record<string, string> = {
   ok: "border-line",
@@ -66,8 +66,63 @@ function Dashboard() {
           <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {data.tiles.map((t, i) => <Tile key={t.key} tile={t} index={i} />)}
           </div>
+
+          <WhatsAppReport companyId={companyId} />
         </>
       )}
+    </div>
+  );
+}
+
+function WhatsAppReport({ companyId }: { companyId: string }) {
+  const [cc, setCc] = useState("+91");
+  const [number, setNumber] = useState("");
+  const [preview, setPreview] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"preview" | "send" | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  function fullNumber() {
+    const code = cc.trim().replace(/[^\d+]/g, "");
+    const digits = number.trim().replace(/[^\d]/g, "");
+    const prefix = code.startsWith("+") ? code : `+${code}`;
+    return `${prefix}${digits}`;
+  }
+
+  async function doPreview() {
+    setBusy("preview"); setNote(null);
+    try { setPreview((await reportApi.preview(companyId)).report); }
+    catch { setNote("Couldn't build the report."); }
+    finally { setBusy(null); }
+  }
+
+  async function doSend() {
+    if (!number.trim()) { setNote("Enter your WhatsApp number (without the country code)."); return; }
+    setBusy("send"); setNote(null);
+    try {
+      const res = await reportApi.sendWhatsapp(companyId, fullNumber());
+      setPreview(res.report);
+      setNote(res.sent ? `Sent via WhatsApp (status: ${res.status}).` : `Not sent: ${res.error}`);
+    } catch { setNote("Send failed. Check the number and Twilio setup."); }
+    finally { setBusy(null); }
+  }
+
+  return (
+    <div className="mt-6 rounded-2xl border border-line bg-surface p-5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] uppercase tracking-wider text-accent">Executive report · WhatsApp</span>
+      </div>
+      <p className="mt-1 text-[13px] text-muted">A consolidated brief across Strategy, Marketing, Lead Gen, Sales and Analytics — sent to your phone.</p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <input value={cc} onChange={(e) => setCc(e.target.value)} placeholder="+91" aria-label="Country code"
+          className="w-20 rounded-xl border border-line bg-canvas px-3 py-2 text-[14px] outline-none placeholder:text-faint focus:border-accent" />
+        <input value={number} onChange={(e) => setNumber(e.target.value)} placeholder="WhatsApp number" inputMode="numeric" aria-label="WhatsApp number"
+          className="flex-1 rounded-xl border border-line bg-canvas px-3 py-2 text-[14px] outline-none placeholder:text-faint focus:border-accent" />
+        <button onClick={doPreview} disabled={busy !== null} className="rounded-xl border border-line px-4 py-2 text-sm text-ink hover:border-accent disabled:opacity-50">{busy === "preview" ? "Building…" : "Preview"}</button>
+        <button onClick={doSend} disabled={busy !== null} className="rounded-xl bg-ink px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">{busy === "send" ? "Sending…" : "Send to WhatsApp"}</button>
+      </div>
+      {note && <p className={`mt-2 text-[13px] ${note.startsWith("Sent") ? "text-good" : "text-warn"}`}>{note}</p>}
+      {preview && <pre className="mt-3 whitespace-pre-wrap rounded-xl border border-line bg-canvas p-3 font-sans text-[13px] leading-relaxed text-ink">{preview}</pre>}
+      <p className="mt-2 text-[11px] text-faint">Using the Twilio WhatsApp sandbox: the recipient must first send the sandbox join code to the Twilio number in WhatsApp.</p>
     </div>
   );
 }

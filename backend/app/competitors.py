@@ -31,9 +31,9 @@ _THEM_WEAKER = re.compile(r"limited|early|niche|lacks|lacking|no [a-z]|slow|expe
 
 
 def add_competitor(company_id: str, name: str, features: str = "", pricing: str = "",
-                   positioning: str = "", notes: str = "") -> dict:
+                   positioning: str = "", notes: str = "", url: str = "") -> dict:
     payload = {"name": name, "features": features, "pricing": pricing,
-               "positioning": positioning, "notes": notes}
+               "positioning": positioning, "notes": notes, "url": url}
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "competitor"
     memory.add_fact(
         company_id, COMPETITOR_TYPE, f"competitor_{slug}", f"Competitor: {name}",
@@ -213,7 +213,7 @@ def discover_competitors(company_id: str, limit: int = 6) -> dict:
             name = p["name"].strip()
             if not name or name.lower() in existing or _looks_like_us(name, us):
                 continue
-            add_competitor(company_id, name, positioning=p["positioning"],
+            add_competitor(company_id, name, positioning=p["positioning"], url=p["url"],
                            notes=f"Discovered via web research. Source: {p['url'] or 'search'} — review before relying on it.")
             added.append(name)
             existing.add(name.lower())
@@ -228,7 +228,7 @@ def discover_competitors(company_id: str, limit: int = 6) -> dict:
             name = _name_from_domain(r["url"])
             if not name or name.lower() in existing or _looks_like_us(name, us):
                 continue
-            add_competitor(company_id, name, positioning=(r.get("snippet") or "")[:160],
+            add_competitor(company_id, name, positioning=(r.get("snippet") or "")[:160], url=r["url"],
                            notes=f"Discovered via web: {r['url']} — unverified, review before relying on it.")
             added.append(name)
             existing.add(name.lower())

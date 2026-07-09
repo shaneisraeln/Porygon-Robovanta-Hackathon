@@ -464,6 +464,106 @@ def investordb_upsert(rec: dict) -> str:
     return fid
 
 
+# ---------------- OAuth app credentials (set via the UI, not .env) ----------------
+
+def set_oauth_app(provider: str, client_id: str, client_secret: str) -> None:
+    with tx() as c:
+        c.execute("INSERT OR REPLACE INTO oauth_apps(provider,client_id,client_secret,updated_at) VALUES(?,?,?,?)",
+                  (provider, client_id, client_secret, now()))
+
+
+def get_oauth_app(provider: str) -> dict | None:
+    row = get_conn().execute("SELECT client_id,client_secret FROM oauth_apps WHERE provider=?", (provider,)).fetchone()
+    if not row or not row["client_id"] or not row["client_secret"]:
+        return None
+    return {"client_id": row["client_id"], "client_secret": row["client_secret"]}
+
+
+def delete_oauth_app(provider: str) -> None:
+    with tx() as c:
+        c.execute("DELETE FROM oauth_apps WHERE provider=?", (provider,))
+
+
+# ---------------- Sales deals pipeline ----------------
+
+DEAL_STAGES = ["Lead", "Qualified", "Demo", "Proposal", "Won", "Lost"]
+
+
+def create_deal(company_id: str, name: str, value: float = 0, stage: str = "Lead") -> dict:
+    if stage not in DEAL_STAGES:
+        stage = "Lead"
+    did = _id("deal")
+    t = now()
+    with tx() as c:
+        c.execute(
+            "INSERT INTO deals(id,company_id,name,value,stage,status,created_at,stage_since,last_activity) VALUES(?,?,?,?,?,?,?,?,?)",
+            (did, company_id, name, value, stage, "open", t, t, t),
+        )
+        c.execute("INSERT INTO deal_events(id,company_id,deal_id,from_stage,to_stage,at) VALUES(?,?,?,?,?,?)",
+                  (_id("de"), company_id, did, None, stage, t))
+    return get_deal(company_id, did)
+
+
+def get_deal(company_id: str, deal_id: str) -> dict | None:
+    row = get_conn().execute("SELECT * FROM deals WHERE company_id=? AND id=?", (company_id, deal_id)).fetchone()
+    return dict(row) if row else None
+
+
+def list_deals(company_id: str) -> list[dict]:
+    rows = get_conn().execute("SELECT * FROM deals WHERE company_id=? ORDER BY last_activity DESC", (company_id,)).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["days_in_stage"] = round((now() - d["stage_since"]) / 86400, 1)
+        out.append(d)
+    return out
+
+
+def move_deal(company_id: str, deal_id: str, stage: str) -> dict | None:
+    d = get_deal(company_id, deal_id)
+    if not d or stage not in DEAL_STAGES:
+        return d
+    t = now()
+    status = "won" if stage == "Won" else "lost" if stage == "Lost" else "open"
+    closed = t if status in ("won", "lost") else None
+    with tx() as c:
+        c.execute("UPDATE deals SET stage=?,status=?,stage_since=?,last_activity=?,closed_at=? WHERE company_id=? AND id=?",
+                  (stage, status, t, t, closed, company_id, deal_id))
+        c.execute("INSERT INTO deal_events(id,company_id,deal_id,from_stage,to_stage,at) VALUES(?,?,?,?,?,?)",
+                  (_id("de"), company_id, deal_id, d["stage"], stage, t))
+    return get_deal(company_id, deal_id)
+
+
+def deal_metrics(company_id: str) -> dict:
+    """Pipeline stats + historical stage-to-stage average times (from events)."""
+    deals = list_deals(company_id)
+    events = [dict(r) for r in get_conn().execute(
+        "SELECT * FROM deal_events WHERE company_id=? ORDER BY at ASC", (company_id,)).fetchall()]
+
+    # Average days spent moving from one stage to the next (across all deals).
+    by_deal: dict[str, list[dict]] = {}
+    for e in events:
+        by_deal.setdefault(e["deal_id"], []).append(e)
+    transitions: dict[str, list[float]] = {}
+    for evs in by_deal.values():
+        for i in range(1, len(evs)):
+            key = f"{evs[i-1]['to_stage']}→{evs[i]['to_stage']}"
+            transitions.setdefault(key, []).append((evs[i]["at"] - evs[i - 1]["at"]) / 86400)
+    avg_transition = {k: round(sum(v) / len(v), 1) for k, v in transitions.items() if v}
+
+    open_deals = [d for d in deals if d["status"] == "open"]
+    won = len([d for d in deals if d["status"] == "won"])
+    lost = len([d for d in deals if d["status"] == "lost"])
+    closed = won + lost
+    return {
+        "total": len(deals), "open": len(open_deals), "won": won, "lost": lost,
+        "win_rate": round(won / closed * 100) if closed else None,
+        "open_value": sum(d["value"] for d in open_deals),
+        "avg_stage_transition_days": avg_transition,
+        "data_points": len(events),
+    }
+
+
 def counts(company_id: str) -> dict:
     conn = get_conn()
     q = lambda t: conn.execute(f"SELECT COUNT(*) AS n FROM {t} WHERE company_id=?", (company_id,)).fetchone()["n"]

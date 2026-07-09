@@ -108,13 +108,23 @@ function DeckView({ companyId }: { companyId: string }) {
         <p className="text-sm text-muted">{deck ? `Version ${deck.version} · ${deck.content.completeness}% complete (from memory)` : "Generate an investor-ready deck from Company Memory."}</p>
         <button onClick={gen} disabled={busy} className="rounded-xl bg-ink px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50">{busy ? "Generating…" : deck ? "Regenerate" : "Generate deck"}</button>
       </div>
+      {deck?.content.next_steps?.length ? (
+        <div className="rounded-2xl border border-accent/30 bg-accent/[0.04] p-4">
+          <p className="mb-1.5 text-[11px] uppercase tracking-wider text-accent">Next steps</p>
+          <ul className="space-y-1">{deck.content.next_steps.map((n, i) => <li key={i} className="text-[13px] text-ink">→ {n}</li>)}</ul>
+        </div>
+      ) : null}
       {deck && (
         <div className="grid gap-3 sm:grid-cols-2">
           {deck.content.slides.map((s, i) => (
             <div key={i} className={`rounded-2xl border bg-surface p-4 ${s.needs_input ? "border-dashed border-warn/40" : "border-line"}`}>
               <div className="flex items-center justify-between"><p className="text-[11px] uppercase tracking-wider text-faint">Slide {i + 1}</p>{s.needs_input && <span className="text-[11px] text-warn">needs input</span>}</div>
               <h3 className="mt-0.5 text-[15px] font-semibold text-ink">{s.title}</h3>
-              <ul className="mt-2 space-y-1">{s.bullets.length ? s.bullets.map((b, j) => <li key={j} className="text-[13px] text-muted">• {b}</li>) : <li className="text-[13px] text-faint">Answer more in the interview to fill this.</li>}</ul>
+              {s.bullets.length ? (
+                <ul className="mt-2 space-y-1">{s.bullets.map((b, j) => <li key={j} className="text-[13px] text-muted">• {b}</li>)}</ul>
+              ) : (
+                <p className="mt-2 text-[13px] text-warn">{s.guidance || "Answer more in the interview to fill this."}</p>
+              )}
             </div>
           ))}
         </div>

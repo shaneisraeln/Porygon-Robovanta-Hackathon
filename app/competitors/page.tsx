@@ -93,6 +93,22 @@ function Competitors() {
           </div>
 
           <div>
+            <p className="mb-3 text-[11px] uppercase tracking-wider text-faint">Competitors</p>
+            <div className="flex flex-wrap gap-2">
+              {data.competitors.map((c) => (
+                c.url ? (
+                  <a key={c.name} href={c.url.startsWith("http") ? c.url : `https://${c.url}`} target="_blank" rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-full border border-line px-3 py-1 text-[13px] text-ink transition-colors hover:border-accent">
+                    {c.name} <span className="text-accent">↗</span>
+                  </a>
+                ) : (
+                  <span key={c.name} className="rounded-full border border-line px-3 py-1 text-[13px] text-muted">{c.name}</span>
+                )
+              ))}
+            </div>
+          </div>
+
+          <div>
             <p className="mb-3 text-[11px] uppercase tracking-wider text-faint">Gap table</p>
             <div className="overflow-x-auto rounded-2xl border border-line">
               <table className="w-full border-collapse text-[13px]">
@@ -101,7 +117,11 @@ function Competitors() {
                     <th className="px-4 py-2.5 text-left font-medium text-faint">Dimension</th>
                     <th className="px-4 py-2.5 text-left font-medium text-ink">{data.us.name}</th>
                     {data.competitors.map((c) => (
-                      <th key={c.name} className="px-4 py-2.5 text-left font-medium text-muted">{c.name}</th>
+                      <th key={c.name} className="px-4 py-2.5 text-left font-medium text-muted">
+                        {c.url ? (
+                          <a href={c.url.startsWith("http") ? c.url : `https://${c.url}`} target="_blank" rel="noopener noreferrer" className="text-ink hover:text-accent hover:underline">{c.name} ↗</a>
+                        ) : c.name}
+                      </th>
                     ))}
                   </tr>
                 </thead>
@@ -127,6 +147,7 @@ function Competitors() {
 
 function CompetitorForm({ companyId, onDone }: { companyId: string; onDone: (c: Comparison) => void }) {
   const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
   const [features, setFeatures] = useState("");
   const [pricing, setPricing] = useState("");
   const [positioning, setPositioning] = useState("");
@@ -139,7 +160,7 @@ function CompetitorForm({ companyId, onDone }: { companyId: string; onDone: (c: 
     setBusy(true);
     try {
       const c = await competitorApi.add(companyId, {
-        name: name.trim(), features: features.trim(), pricing: pricing.trim(),
+        name: name.trim(), url: url.trim(), features: features.trim(), pricing: pricing.trim(),
         positioning: positioning.trim(), notes: notes.trim(),
       });
       onDone(c);
@@ -151,6 +172,7 @@ function CompetitorForm({ companyId, onDone }: { companyId: string; onDone: (c: 
   return (
     <form onSubmit={submit} className="mt-5 grid gap-2.5 rounded-2xl border border-line bg-surface p-5 sm:grid-cols-2">
       <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Competitor name" className={field} />
+      <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Website (e.g. competitor.com)" className={field} />
       <input value={pricing} onChange={(e) => setPricing(e.target.value)} placeholder="Pricing (e.g. $99/mo)" className={field} />
       <input value={features} onChange={(e) => setFeatures(e.target.value)} placeholder="Key features" className={`${field} sm:col-span-2`} />
       <input value={positioning} onChange={(e) => setPositioning(e.target.value)} placeholder="Positioning (how they sell)" className={`${field} sm:col-span-2`} />

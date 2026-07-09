@@ -8,6 +8,7 @@ fabricated workflow state.
 """
 from __future__ import annotations
 
+import json
 import re
 
 from . import ai, llm, memory
@@ -64,6 +65,32 @@ def readiness(company_id: str) -> dict:
 
 # ---------------- Pitch deck ----------------
 
+# What each slide needs — shown to the founder when the slide is thin.
+_SLIDE_GUIDANCE = {
+    "Title": "Add your company name, a one-line pitch, and your stage (Onboarding).",
+    "Problem": "Describe the specific pain your customer feels today. Answer the 'problem' question in onboarding.",
+    "Solution": "State what you build and how it solves that problem in one clear line.",
+    "Product": "List your 2-3 core features and current build progress (or connect GitHub).",
+    "Market": "Add target geography, market size (TAM), and your main competitors.",
+    "Traction": "Add revenue, growth %, customers or retention — connect Stripe or answer the metrics questions.",
+    "Business Model": "Explain how you make money and your pricing.",
+    "Team": "Add team size and the key roles/backgrounds.",
+    "The Ask": "State how much you're raising, the round, and how you'll use the funds.",
+}
+
+
+def _extract_json(text: str):
+    import json as _json
+    import re as _re
+    if not text:
+        return None
+    m = _re.search(r"\{.*\}", text, _re.S)
+    try:
+        return _json.loads(m.group(0) if m else text)
+    except (ValueError, TypeError):
+        return None
+
+
 def generate_pitch_deck(company_id: str) -> dict:
     co = memory.get_company(company_id)
     m = ai.derive_metrics(company_id)
@@ -72,7 +99,9 @@ def generate_pitch_deck(company_id: str) -> dict:
     slides = []
 
     def slide(title, bullets, missing=False):
-        slides.append({"title": title, "bullets": [b for b in bullets if b], "needs_input": missing or not any(bullets)})
+        clean = [b for b in bullets if b]
+        slides.append({"title": title, "bullets": clean, "needs_input": missing or not clean,
+                       "guidance": _SLIDE_GUIDANCE.get(title, "")})
 
     slide("Title", [co["name"] if co else "", co.get("what") if co else "", co.get("stage") if co else ""])
     slide("Problem", [g("problem"), g("why_now")], missing=not g("problem"))
@@ -100,19 +129,39 @@ def generate_pitch_deck(company_id: str) -> dict:
         ask.append(f"Use of funds: extend runway at {fmt_money(m['monthly_spend'])}/mo burn")
     slide("The Ask", ask, missing=not ask)
 
-    # Optional LLM polish of bullets from the SAME grounded content.
+    # Optional LLM polish — tightens phrasing of slides that HAVE content, never
+    # invents facts and never fills empty slides (those keep their guidance).
+    llm_refined = False
     if llm.active():
-        ctx = "\n".join(f"{s['title']}: {'; '.join(s['bullets'])}" for s in slides)
-        out = llm.complete("You refine an investor pitch deck. Tighten each slide's bullets. Do not invent facts beyond the context.", ctx)
-        if out:
-            slides_meta = {"llm_refined": True}
-        else:
-            slides_meta = {}
+        filled = {s["title"]: s["bullets"] for s in slides if s["bullets"]}
+        if filled:
+            out = llm.complete(
+                "You refine investor pitch-deck bullets. Tighten each slide's bullets into crisp, "
+                "investor-ready phrasing. DO NOT invent facts, numbers or claims not present. Keep it "
+                "grounded. Return ONLY JSON: {\"SlideTitle\": [\"bullet\", ...], ...}.",
+                json.dumps(filled), max_tokens=800,
+            )
+            parsed = _extract_json(out)
+            if isinstance(parsed, dict):
+                for s in slides:
+                    new = parsed.get(s["title"])
+                    if isinstance(new, list) and new and s["bullets"]:
+                        s["bullets"] = [str(b) for b in new if b][:5]
+                llm_refined = True
+
+    # Next steps: what to complete + where to do outreach.
+    missing_titles = [s["title"] for s in slides if s["needs_input"]]
+    n_investors = len(memory.list_investors(company_id))
+    next_steps = []
+    if missing_titles:
+        next_steps.append(f"Complete these slides: {', '.join(missing_titles)}.")
+    if n_investors:
+        next_steps.append(f"You have {n_investors} investor(s) ranked — go to the Outreach tab to draft and send.")
     else:
-        slides_meta = {}
+        next_steps.append("Add target investors (Investors tab) or connect Gmail, then reach out from the Outreach tab.")
 
     completeness = round(sum(0 if s["needs_input"] else 1 for s in slides) / len(slides) * 100)
-    content = {"slides": slides, "completeness": completeness, **slides_meta}
+    content = {"slides": slides, "completeness": completeness, "llm_refined": llm_refined, "next_steps": next_steps}
     art = memory.save_artifact(company_id, "pitch_deck", f"{co['name']} pitch deck" if co else "Pitch deck", content)
     memory.add_timeline(company_id, connector_id="cbo", kind="Document", title=f"Pitch deck generated (v{art['version']})",
                         summary=f"{completeness}% complete from Company Memory.", why="Fundraising artifact generated",

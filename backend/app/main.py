@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
-from . import ai, competitors, connectors, dashboard, fundraising, growth, interview, investordb, memory, metrics, outcomes
+from . import ai, competitors, connectors, dashboard, fundraising, growth, interview, investordb, llm, memory, metrics, outcomes, report
 from .config import settings
 from .db import init_db
 from .extract import detect_firms, extract_onboarding
@@ -112,13 +112,15 @@ class CompetitorReq(BaseModel):
     pricing: str = ""
     positioning: str = ""
     notes: str = ""
+    url: str = ""
 
 
 # ---------------- health ----------------
 
 @app.get("/health")
 def health():
-    return {"ok": True, "llm": settings.llm_provider, "llm_active": settings.llm_active}
+    li = llm.info()
+    return {"ok": True, "llm": li["provider"], "llm_active": li["active"], "model": li["model"]}
 
 
 # ---------------- onboarding ----------------
@@ -557,6 +559,216 @@ def get_dashboard(company_id: str):
     return dashboard.build_dashboard(company_id)
 
 
+# ---------------- Growth Engines (6-engine hub) ----------------
+
+from .engines import (strategy as eng_strategy, marketing as eng_marketing,  # noqa: E402
+                      leadgen as eng_leadgen, sales as eng_sales,
+                      analytics as eng_analytics, success as eng_success)
+
+
+class ChatReq(BaseModel):
+    message: str
+
+
+class TicketReq(BaseModel):
+    subject: str
+    body: str
+
+
+class DealReq(BaseModel):
+    name: str
+    value: float = 0
+    stage: str = "Lead"
+
+
+class DealStageReq(BaseModel):
+    stage: str
+
+
+class WhatsAppReq(BaseModel):
+    to: str
+
+
+class OAuthAppReq(BaseModel):
+    client_id: str
+    client_secret: str
+
+
+# Strategy
+@app.get("/companies/{company_id}/engines/strategy")
+def engine_strategy_get(company_id: str):
+    require_company(company_id)
+    return eng_strategy.latest(company_id) or {"empty": True}
+
+
+@app.post("/companies/{company_id}/engines/strategy")
+def engine_strategy_generate(company_id: str):
+    require_company(company_id)
+    return eng_strategy.generate(company_id)
+
+
+# Marketing
+@app.get("/companies/{company_id}/engines/marketing")
+def engine_marketing_get(company_id: str):
+    require_company(company_id)
+    return eng_marketing.latest(company_id) or {"empty": True}
+
+
+@app.post("/companies/{company_id}/engines/marketing")
+def engine_marketing_generate(company_id: str):
+    require_company(company_id)
+    return eng_marketing.generate(company_id)
+
+
+# Lead Gen
+@app.get("/companies/{company_id}/engines/leadgen")
+def engine_leadgen_get(company_id: str):
+    require_company(company_id)
+    return eng_leadgen.latest(company_id) or {"empty": True}
+
+
+@app.post("/companies/{company_id}/engines/leadgen")
+def engine_leadgen_generate(company_id: str):
+    require_company(company_id)
+    return eng_leadgen.generate(company_id)
+
+
+# Sales
+@app.get("/companies/{company_id}/engines/sales")
+def engine_sales_get(company_id: str):
+    require_company(company_id)
+    return eng_sales.latest(company_id) or {"empty": True}
+
+
+@app.post("/companies/{company_id}/engines/sales")
+def engine_sales_generate(company_id: str):
+    require_company(company_id)
+    return eng_sales.generate(company_id)
+
+
+# Analytics
+@app.get("/companies/{company_id}/engines/analytics")
+def engine_analytics_get(company_id: str):
+    require_company(company_id)
+    return eng_analytics.live(company_id)
+
+
+@app.post("/companies/{company_id}/engines/analytics")
+def engine_analytics_generate(company_id: str):
+    require_company(company_id)
+    return eng_analytics.generate(company_id)
+
+
+# Customer Success
+@app.get("/companies/{company_id}/engines/success")
+def engine_success_get(company_id: str):
+    require_company(company_id)
+    return {**eng_success.overview(company_id), "faqs": eng_success.faqs(company_id)}
+
+
+@app.post("/companies/{company_id}/engines/success/chat")
+def engine_success_chat(company_id: str, req: ChatReq):
+    require_company(company_id)
+    if not req.message.strip():
+        raise HTTPException(400, "A message is required")
+    return eng_success.chat(company_id, req.message)
+
+
+@app.post("/companies/{company_id}/engines/success/ticket")
+def engine_success_ticket(company_id: str, req: TicketReq):
+    require_company(company_id)
+    if not req.subject.strip():
+        raise HTTPException(400, "A subject is required")
+    return eng_success.add_ticket(company_id, req.subject, req.body)
+
+
+@app.post("/companies/{company_id}/engines/success/faqs")
+def engine_success_faqs(company_id: str):
+    require_company(company_id)
+    return {"faqs": eng_success.generate_faqs(company_id)}
+
+
+@app.get("/companies/{company_id}/engines/success/brief")
+def engine_success_brief_get(company_id: str):
+    require_company(company_id)
+    return eng_success.latest(company_id) or {"empty": True}
+
+
+@app.post("/companies/{company_id}/engines/success/brief")
+def engine_success_brief_gen(company_id: str):
+    require_company(company_id)
+    return eng_success.generate(company_id)
+
+
+# ---------------- Sales deal pipeline ----------------
+
+@app.get("/companies/{company_id}/deals")
+def get_deals(company_id: str):
+    require_company(company_id)
+    return {"deals": memory.list_deals(company_id), "metrics": memory.deal_metrics(company_id),
+            "stages": memory.DEAL_STAGES}
+
+
+@app.post("/companies/{company_id}/deals")
+def create_deal(company_id: str, req: DealReq):
+    require_company(company_id)
+    if not req.name.strip():
+        raise HTTPException(400, "A deal name is required")
+    return memory.create_deal(company_id, req.name.strip(), req.value, req.stage)
+
+
+@app.post("/companies/{company_id}/deals/{deal_id}/stage")
+def move_deal(company_id: str, deal_id: str, req: DealStageReq):
+    require_company(company_id)
+    d = memory.move_deal(company_id, deal_id, req.stage)
+    if not d:
+        raise HTTPException(404, "Deal not found")
+    return d
+
+
+# ---------------- Consolidated executive report → WhatsApp ----------------
+
+@app.get("/companies/{company_id}/report")
+def report_preview(company_id: str):
+    require_company(company_id)
+    return {"report": report.generate_report(company_id)}
+
+
+@app.post("/companies/{company_id}/report/whatsapp")
+def report_whatsapp(company_id: str, req: WhatsAppReq):
+    require_company(company_id)
+    if not req.to.strip():
+        raise HTTPException(400, "A recipient WhatsApp number is required (e.g. +919876543210)")
+    return report.send_whatsapp(company_id, req.to)
+
+
+# ---------------- integration setup (OAuth apps, managed from the UI, not .env) ----------------
+
+@app.get("/settings/integrations")
+def list_integrations():
+    out = []
+    for provider, info in connectors.OAUTH_PROVIDER_INFO.items():
+        out.append({"provider": provider, "name": info["name"], "enables": info["enables"],
+                    "configured": bool(connectors.resolve_oauth_client(provider))})
+    return {"integrations": out, "redirect_uri": connectors._redirect_uri()}
+
+
+@app.post("/settings/integrations/{provider}")
+def save_integration(provider: str, req: OAuthAppReq):
+    if provider not in connectors.OAUTH_PROVIDER_INFO:
+        raise HTTPException(404, "Unknown provider")
+    if not (req.client_id.strip() and req.client_secret.strip()):
+        raise HTTPException(400, "Both client ID and client secret are required")
+    memory.set_oauth_app(provider, req.client_id.strip(), req.client_secret.strip())
+    return {"provider": provider, "configured": True}
+
+
+@app.delete("/settings/integrations/{provider}")
+def delete_integration(provider: str):
+    memory.delete_oauth_app(provider)
+    return {"provider": provider, "configured": bool(connectors.resolve_oauth_client(provider))}
+
+
 # ---------------- Competitor Analysis (v2) ----------------
 
 @app.get("/companies/{company_id}/competitors")
@@ -570,7 +782,7 @@ def add_competitor(company_id: str, req: CompetitorReq):
     require_company(company_id)
     if not req.name.strip():
         raise HTTPException(400, "A competitor name is required")
-    competitors.add_competitor(company_id, req.name.strip(), req.features, req.pricing, req.positioning, req.notes)
+    competitors.add_competitor(company_id, req.name.strip(), req.features, req.pricing, req.positioning, req.notes, req.url)
     return competitors.comparison(company_id)
 
 
